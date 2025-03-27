@@ -9,28 +9,56 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
+    
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
         cache: maven
-    - name: Set up node 20 
+    
+    - name: Set up Node 20 
       uses: actions/setup-node@v4
       with:
         node-version: '20'
-    - name: Build with Maven
+    
+    - name: Fix Maven wrapper permissions
+      run: chmod +x Backend/calculator/mvnw
+      
+    - name: Install Newman
+      run: npm install -g newman
+      
+    - name: Build and run server
       run: |
-          cd Backend/calculator
-           ./mvnw clean spring-boot:run & 
-           echo "waiting 5 seconds for the server to start"
-           sleep 10
-           echo "sever ready for testing"
-           npm install -g newman
-           newman -v
-           newman run src/test/java/com/example/calculator/JAVA.postman_collection.json
+        cd Backend/calculator
+        # Compilar primero
+        ./mvnw clean package
+        # Iniciar el servidor en segundo plano
+        ./mvnw spring-boot:run &
+        # Esperar a que el servidor inicie completamente
+        echo "Esperando 15 segundos para que el servidor inicie completamente..."
+        sleep 15
+        
+        # Verificar si el servidor está funcionando haciendo una petición de prueba
+        if curl -s http://localhost:8080/add?num1=1\&num2=1 > /dev/null; then
+          echo "✅ El servidor está funcionando correctamente"
+        else
+          echo "❌ El servidor no está funcionando"
+          exit 1
+        fi
+        
+    - name: Run API tests
+      run: |
+        cd Backend/calculator
+        echo "Ejecutando pruebas con Newman..."
+        newman run src/test/java/com/example/calculator/JAVA.postman_collection.json
+      
+    - name: Clean up
+      if: always()
+      run: |
+        # Detener el servidor Spring Boot
+        kill $(lsof -t -i:8080) || true
